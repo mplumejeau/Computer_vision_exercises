@@ -11,7 +11,7 @@ def read_and_grey_images(img1_path, img2_path):
     return gray1, gray2
 
 # find keypoints of 2 input grey scale images, perform matches between both images and return the strongest matches into an array
-def match_keypoints(gray1, gray2, ratio):
+def match_keypoints(gray1, gray2, ratio, res_path):
 
     # initiate ORB detector
     orb = cv.ORB_create()
@@ -55,20 +55,40 @@ def match_keypoints(gray1, gray2, ratio):
 
     return matched_points
 
-# compute the matrix A and the vector b from the matched points between 2 images and the Jacobian matrix
-def compute_A_b(matched_points, J):
+def J_translation(x, y):
+    J = np.array([[1, 0], 
+                  [0, 1]])
+    return J
 
-    Jt = J.transpose()
+def J_similarity(x, y):
+    J = np.array([[1, 0, x, -y], 
+                  [0, 1, y, x]])
+    return J
 
-    A = [[0, 0], 
-         [0, 0]]
+def J_affine(x, y):
+    J = np.array([[1, 0, x, y, 0, 0], 
+                  [0, 1, 0, 0, x, y]])
+    return J
+
+# compute the nxn matrix A and the nx1 vector b from the matched points between 2 images and the Jacobian matrix
+def compute_A_b(matched_points, J_def, n):
     
-    b = [[0],
-         [0]]
-    
+    A = np.zeros([n, n])
+    b = np.zeros([n, 1])
+
     for m in matched_points:
-        # delta = [[x0 - x1], [y0 - y1]]
-        delta = [[m[0][0] - m[1][0]], [m[0][1] - m[1][1]]]
+
+        x1 = m[0][0]
+        y1 = m[0][1]
+        x2 = m[1][0]
+        y2 = m[1][1]
+        delta = [[x2 - x1], 
+                 [y2 - y1]]
+
+        # Jacobian matrix
+        J = J_def(x1, y1)
+        Jt = J.transpose()
+        
         A = A + Jt.dot(J)
         b = b + Jt.dot(delta)
 
@@ -77,15 +97,15 @@ def compute_A_b(matched_points, J):
 # compute the translation parameters between 2 images using the matched keypoints and return the 3x3 transformation matrix 
 def compute_translation_matrix(matched_points):
 
-    # translation Jacobian matrix
-    J = np.array([[1, 0], 
-                  [0, 1]])
+    # dimension of matrix A (biggest dim of J)
+    n = 2
     
-    # compute matrix A and vector b
-    A, b = compute_A_b(matched_points, J)
+    # compute matrix A and vector b    
+    A, b = compute_A_b(matched_points, J_translation, n)
 
-    # compute translation vector p 
+    # compute translation 2x1 vector p 
     p = solve(A, b)
+    print('translation vector :')
     print(p)
 
     # 3x3 transformation matrix
@@ -95,6 +115,53 @@ def compute_translation_matrix(matched_points):
     
     return M
 
+# compute the similarity parameters between 2 images using the matched keypoints and return the 3x3 transformation matrix 
+def compute_similarity_matrix(matched_points):
+
+    # dimension of matrix A (biggest dim of J)
+    n = 4
+    
+    # compute matrix A and vector b    
+    A, b = compute_A_b(matched_points, J_similarity, n)
+
+    # compute similarity 4x1 vector p 
+    p = solve(A, b)
+    print('similarity vector :')
+    print(p)
+
+    # 3x3 transformation matrix
+    M = np.array([[1+p[2][0], -p[3][0] , p[0][0]],
+                  [p[3][0]  , 1+p[2][0], p[1][0]],
+                  [0        , 0        , 0      ]])
+    
+    return M
+
+# compute the affine parameters between 2 images using the matched keypoints and return the 3x3 transformation matrix 
+def compute_affine_matrix(matched_points):
+
+    # dimension of matrix A (biggest dim of J)
+    n = 6
+    
+    # compute matrix A and vector b    
+    A, b = compute_A_b(matched_points, J_affine, n)
+
+    # compute affine 6x1 vector p 
+    p = solve(A, b)
+    print('affine vector :')
+    print(p)
+
+    # 3x3 transformation matrix
+    M = np.array([[1+p[2][0], p[3][0]  , p[0][0]],
+                  [p[4][0]  , 1+p[5][0], p[1][0]],
+                  [0        , 0        , 0      ]])
+    
+    return M
+
+# transform the first image using the transformation matrix M and save the result image
+# DON T WORK FOR THE MOMENT
+def stitch_images(gray1, M, res_path):
+    img1_translated = cv.warpPerspective(gray1, M, (4640, 2610)) 
+    cv.imwrite(res_path + 'img1_translated.jpg', img1_translated)
 
 ####### main #######
 
@@ -113,17 +180,11 @@ ratio = 0.7
 
 gray1, gray2 = read_and_grey_images(img1_path, img2_path)
 
-matched_points = match_keypoints(gray1, gray2, ratio)
+matched_points = match_keypoints(gray1, gray2, ratio, res_path)
 
-M = compute_translation_matrix(matched_points)
+# compute transformation matrixes to go from img2 to img1 using different transformation
+Mt = compute_translation_matrix(matched_points)
+Ms = compute_similarity_matrix(matched_points)
+Ma = compute_affine_matrix(matched_points)
 
-
-
-
-
-
-
-###### Stitching ######
-
-img2_translated = cv.warpPerspective(gray2, M, (4640, 2610)) 
-cv.imwrite(res_path + 'img2_translated.jpg', img2_translated)
+stitch_images(gray1, Mt, res_path)
