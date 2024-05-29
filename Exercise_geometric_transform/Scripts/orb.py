@@ -2,12 +2,19 @@ import numpy as np
 import cv2 as cv
 from scipy.linalg import solve
 
-img1 = cv.imread('Photos_set_1/horizontal_center.jpg')
-img2 = cv.imread('Photos_set_1/horizontal_right.jpg')
+# define useful paths
+path = 'Exercise_geometric_transform/'
+set1_path = path + 'Photos_set_1/'
+set2_path = path + 'Photos_set_2/'
+res_path = path + 'Results/'
+
+# read input images and convert it into grey scale images
+img1 = cv.imread(set1_path + 'horizontal_center.jpg')
+img2 = cv.imread(set1_path + 'horizontal_right.jpg')
 gray1 = cv.cvtColor(img1, cv.COLOR_BGR2GRAY)
 gray2 = cv.cvtColor(img2, cv.COLOR_BGR2GRAY)
 
-# Initiate ORB detector
+# initiate ORB detector
 orb = cv.ORB_create()
 
 # kp --> Keypoints : array containing the feature points of the grayscale image
@@ -15,34 +22,33 @@ orb = cv.ORB_create()
 
 # find the keypoints and compute the descriptors with ORB
 kp1 = orb.detect(gray1, None)
-kp1, des1 = orb.compute(gray1, kp1)
 kp2 = orb.detect(gray2, None)
+kp1, des1 = orb.compute(gray1, kp1)
 kp2, des2 = orb.compute(gray2, kp2)
 
-print(len(kp1))
-print(kp1[0].pt)
+print('nb keypoints img1 : ' + len(kp1))
 
-# Draw keypoints
+# draw keypoints and save the result image
 img1_kp = gray1
 img1_kp = cv.drawKeypoints(gray1, kp1, img1_kp)
-cv.imwrite('orb_keypoints.jpg', img1_kp)
+cv.imwrite(res_path + 'orb_keypoints.jpg', img1_kp)
 
-# BFMatcher with default params
+# match keypoints between both images using brute-force
 bf = cv.BFMatcher()
 matches = bf.knnMatch(des1, des2, k=2)
 
-# Apply ratio test
+# apply ratio test to select only the strongest matches
 ratio = 0.7
 good_matches = []
 for m,n in matches:
     if m.distance < ratio * n.distance:
         good_matches.append([m])
 
-# Draw matches
+# draw matches and save the result image
 img_matches = cv.drawMatchesKnn(gray1, kp1, gray2, kp2, good_matches, None, flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-cv.imwrite('orb_matches.jpg', img_matches)
+cv.imwrite(res_path + 'orb_matches.jpg', img_matches)
 
-# Construct an array of pair of matched points
+# construct an array of pair of matched points
 matched_points = []
 for m in good_matches:
     pt1 = kp1[m[0].queryIdx].pt
@@ -78,4 +84,4 @@ M = np.array([[1, 0, p[0][0]],
 ###### Stitching ######
 
 img2_translated = cv.warpPerspective(gray2, M, (4640, 2610)) 
-cv.imwrite('img2_translated.jpg', img2_translated)
+cv.imwrite(res_path + 'img2_translated.jpg', img2_translated)
