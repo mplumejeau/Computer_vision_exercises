@@ -115,6 +115,35 @@ def compute_translation_matrix(matched_points):
     
     return M
 
+# compute the euclidean parameters between 2 images using the matched keypoints and return the 3x3 transformation matrix 
+def compute_euclidean_matrix(matched_points):
+
+    # for the estimation of the euclidean transformation, we first compute a similarity transformation since it is a non-linear problem
+
+    # dimension of matrix A (biggest dim of J)
+    ns = 4
+    
+    # compute matrix A and vector b    
+    As, bs = compute_A_b(matched_points, J_similarity, ns)
+
+    # compute similarity 4x1 vector p 
+    ps = solve(As, bs)
+
+    # compute euclidean 3x1 vector p from the similarity vector
+    p = np.zeros([3, 1])
+    p[0][0] = ps[0][0]
+    p[1][0] = ps[1][0]
+    p[2][0] = np.arctan(ps[3][0]/ps[2][0])
+    print('euclidean vector :')
+    print(p)
+
+    # 3x3 transformation matrix
+    M = np.array([[np.cos(p[2][0]), -np.sin(p[2][0]), p[0][0]],
+                  [np.sin(p[2][0]), np.cos(p[2][0]) , p[1][0]],
+                  [0        , 0        , 0      ]])
+    
+    return M
+
 # compute the similarity parameters between 2 images using the matched keypoints and return the 3x3 transformation matrix 
 def compute_similarity_matrix(matched_points):
 
@@ -184,7 +213,17 @@ matched_points = match_keypoints(gray1, gray2, ratio, res_path)
 
 # compute transformation matrixes to go from img2 to img1 using different transformation
 Mt = compute_translation_matrix(matched_points)
+Me = compute_euclidean_matrix(matched_points)
 Ms = compute_similarity_matrix(matched_points)
 Ma = compute_affine_matrix(matched_points)
+
+print('translation matrix :')
+print(Mt)
+print('euclidean matrix :')
+print(Me)
+print('similarity matrix :')
+print(Ms)
+print('affine matrix :')
+print(Ma)
 
 stitch_images(gray1, Mt, res_path)
