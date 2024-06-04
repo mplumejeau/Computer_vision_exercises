@@ -124,8 +124,7 @@ def compute_translation_matrix(matched_points):
 
     # 3x3 transformation matrix
     M = np.array([[1, 0, p[0][0]],
-                  [0, 1, p[1][0]],
-                  [0, 0, 0      ]])
+                  [0, 1, p[1][0]]])
     
     return M
 
@@ -153,8 +152,7 @@ def compute_euclidean_matrix(matched_points):
 
     # 3x3 transformation matrix
     M = np.array([[np.cos(p[2][0]), -np.sin(p[2][0]), p[0][0]],
-                  [np.sin(p[2][0]), np.cos(p[2][0]) , p[1][0]],
-                  [0        , 0        , 0      ]])
+                  [np.sin(p[2][0]), np.cos(p[2][0]) , p[1][0]]])
     
     return M
 
@@ -174,8 +172,7 @@ def compute_similarity_matrix(matched_points):
 
     # 3x3 transformation matrix
     M = np.array([[1+p[2][0], -p[3][0] , p[0][0]],
-                  [p[3][0]  , 1+p[2][0], p[1][0]],
-                  [0        , 0        , 0      ]])
+                  [p[3][0]  , 1+p[2][0], p[1][0]]])
     
     return M
 
@@ -195,32 +192,73 @@ def compute_affine_matrix(matched_points):
 
     # 3x3 transformation matrix
     M = np.array([[1+p[2][0], p[3][0]  , p[0][0]],
-                  [p[4][0]  , 1+p[5][0], p[1][0]],
-                  [0        , 0        , 0      ]])
+                  [p[4][0]  , 1+p[5][0], p[1][0]]])
     
     return M
 
-def compute_homography_matrix(matched_points):
+def get_affine_matrix(matched_points):
 
     pts1 = []
     pts2 = []
 
+    # creation of a list of 3 points for each image
+    for m in matched_points[:3]:
+        pts1.append(m[0])
+        pts2.append(m[1])
+
+    # conversion into np array
+    pts1_np = np.array(pts1, dtype=np.float32)
+    pts2_np = np.array(pts2, dtype=np.float32)
+
+    # 3x3 transformation matrix
+    M = cv.getAffineTransform(pts1_np, pts2_np)
+
+    return M
+
+def get_homography_matrix(matched_points):
+
+    pts1 = []
+    pts2 = []
+
+    # creation of a list of 4 points for each image
     for m in matched_points:
         pts1.append(m[0])
         pts2.append(m[1])
 
+    # conversion into np array
     pts1_np = np.array(pts1, dtype=np.float32)
     pts2_np = np.array(pts2, dtype=np.float32)
 
+    # 3x3 transformation matrix
     M = cv.getPerspectiveTransform(pts1_np, pts2_np)
 
     return M
 
-# transform the first image using the transformation matrix M and save the result image
-# DON T WORK FOR THE MOMENT
-def stitch_images(gray1, M, res_path):
-    img1_translated = cv.warpPerspective(gray1, M, (4640, 2610)) 
-    cv.imwrite(res_path + 'img1_translated.jpg', img1_translated)
+# transform an image using the 2x3 transformation matrix M and save the result image
+def transform_affine(gray, M, res_path):
+
+    img_width = gray.shape[1]
+    img_height = gray.shape[0]
+
+    img_transformed = cv.warpAffine(gray, M, (img_width, img_height))
+
+    cv.imwrite(res_path + 'img_query_affine_transform.jpg', img_transformed)
+
+# transform an image using the 3x3 transformation matrix M and save the result image
+def transform_homography(gray, M, res_path):
+
+    img_width = gray.shape[1]
+    img_height = gray.shape[0]
+
+    img_transformed = cv.warpPerspective(gray, M, (img_width, img_height))
+
+    cv.imwrite(res_path + 'img_query_homography_transform.jpg', img_transformed)
+
+
+def compute_canva_size(gray_query, grey_ref, M):
+    print()
+
+
 
 
 ####### main #######
@@ -233,27 +271,30 @@ set3_path = path + 'Photos_set_3/'
 res_path = path + 'Results/'
 
 # 2 images with similarities
-img1_path = set1_path + 'horizontal_center.jpg'
-img2_path = set1_path + 'horizontal_right.jpg'
+img_query_path = set1_path + 'vertical_rotate.jpg'  # the image i want to deform in order to obtain the ref image
+img_ref_path = set1_path + 'vertical_center.jpg'    # the reference image
 
 # ratio applied to select the strongest matches
 ratio = 0.7
 
 # read and resize images
-gray1, gray2 = read_and_grey_images(img1_path, img2_path)
-gray1 = cv.resize(gray1, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
-gray2 = cv.resize(gray2, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
+gray_query, gray_ref = read_and_grey_images(img_query_path, img_ref_path)
+gray_query = cv.resize(gray_query, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
+gray_ref = cv.resize(gray_ref, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
 
 # find keypoints in both images and matched them
-matched_points, best_4_matched_points = match_keypoints(gray1, gray2, ratio, res_path)
+matched_points, best_4_matched_points = match_keypoints(gray_query, gray_ref, ratio, res_path)
 
-# compute transformation matrixes to go from img2 to img1 using different transformation
+# compute transformation matrixes to go from img2 to img1 using different transformations
 Mt = compute_translation_matrix(matched_points)
 Me = compute_euclidean_matrix(matched_points)
 Ms = compute_similarity_matrix(matched_points)
 Ma = compute_affine_matrix(matched_points)
-Mh = compute_homography_matrix(best_4_matched_points)
 
+Ma2 = get_affine_matrix(best_4_matched_points)
+Mh = get_homography_matrix(best_4_matched_points)
+
+# print transformation matrixes of different transformations
 print('translation matrix :')
 print(Mt)
 print('euclidean matrix :')
@@ -262,7 +303,11 @@ print('similarity matrix :')
 print(Ms)
 print('affine matrix :')
 print(Ma)
-print('homography matrix :')
+
+print('affine matrix from func :')
+print(Ma2)
+print('homography matrix from func :')
 print(Mh)
 
-stitch_images(gray1, Mt, res_path)
+# transform the query image into the ref image
+transform_affine(gray_query, Ma, res_path)
