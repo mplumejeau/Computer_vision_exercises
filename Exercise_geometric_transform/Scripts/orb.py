@@ -46,6 +46,13 @@ def match_keypoints(gray1, gray2, ratio, res_path):
     img_matches = cv.drawMatchesKnn(gray1, kp1, gray2, kp2, good_matches, None, flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
     cv.imwrite(res_path + 'orb_matches.jpg', img_matches)
 
+    # extract the 4 best matches from good_matches (those with the smallest distance)
+    if len(good_matches) < 4:
+        print("less than 4 matches between images")
+    else:
+        sorted_good_matches = sorted(good_matches, key=lambda x: x[0].distance)
+        best_4_matches = sorted_good_matches[:4]
+
     # construct an array of pair of matched points
     matched_points = []
     for m in good_matches:
@@ -53,7 +60,14 @@ def match_keypoints(gray1, gray2, ratio, res_path):
         pt2 = kp2[m[0].trainIdx].pt
         matched_points.append([pt1, pt2])
 
-    return matched_points
+    # construct an array of pair of the 4 best matched points
+    best_4_matched_points = []
+    for m in best_4_matches:
+        pt1 = kp1[m[0].queryIdx].pt
+        pt2 = kp2[m[0].trainIdx].pt
+        best_4_matched_points.append([pt1, pt2])
+
+    return matched_points, best_4_matched_points
 
 def J_translation(x, y):
     J = np.array([[1, 0], 
@@ -186,11 +200,28 @@ def compute_affine_matrix(matched_points):
     
     return M
 
+def compute_homography_matrix(matched_points):
+
+    pts1 = []
+    pts2 = []
+
+    for m in matched_points:
+        pts1.append(m[0])
+        pts2.append(m[1])
+
+    pts1_np = np.array(pts1, dtype=np.float32)
+    pts2_np = np.array(pts2, dtype=np.float32)
+
+    M = cv.getPerspectiveTransform(pts1_np, pts2_np)
+
+    return M
+
 # transform the first image using the transformation matrix M and save the result image
 # DON T WORK FOR THE MOMENT
 def stitch_images(gray1, M, res_path):
     img1_translated = cv.warpPerspective(gray1, M, (4640, 2610)) 
     cv.imwrite(res_path + 'img1_translated.jpg', img1_translated)
+
 
 ####### main #######
 
@@ -198,24 +229,30 @@ def stitch_images(gray1, M, res_path):
 path = 'Exercise_geometric_transform/'
 set1_path = path + 'Photos_set_1/'
 set2_path = path + 'Photos_set_2/'
+set3_path = path + 'Photos_set_3/'
 res_path = path + 'Results/'
 
 # 2 images with similarities
 img1_path = set1_path + 'horizontal_center.jpg'
 img2_path = set1_path + 'horizontal_right.jpg'
 
-# ratio applied to selcet the strongest matches
+# ratio applied to select the strongest matches
 ratio = 0.7
 
+# read and resize images
 gray1, gray2 = read_and_grey_images(img1_path, img2_path)
+gray1 = cv.resize(gray1, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
+gray2 = cv.resize(gray2, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
 
-matched_points = match_keypoints(gray1, gray2, ratio, res_path)
+# find keypoints in both images and matched them
+matched_points, best_4_matched_points = match_keypoints(gray1, gray2, ratio, res_path)
 
 # compute transformation matrixes to go from img2 to img1 using different transformation
 Mt = compute_translation_matrix(matched_points)
 Me = compute_euclidean_matrix(matched_points)
 Ms = compute_similarity_matrix(matched_points)
 Ma = compute_affine_matrix(matched_points)
+Mh = compute_homography_matrix(best_4_matched_points)
 
 print('translation matrix :')
 print(Mt)
@@ -225,5 +262,7 @@ print('similarity matrix :')
 print(Ms)
 print('affine matrix :')
 print(Ma)
+print('homography matrix :')
+print(Mh)
 
 stitch_images(gray1, Mt, res_path)
