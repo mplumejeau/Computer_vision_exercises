@@ -7,12 +7,10 @@ from scipy.linalg import solve
 def read_and_grey_images(img1_path, img2_path):
     img1 = cv.imread(img1_path)
     img2 = cv.imread(img2_path)
-    #img1 = cv.resize(img1, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
-    #img2 = cv.resize(img2, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
+    img1 = cv.resize(img1, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
+    img2 = cv.resize(img2, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
     gray1 = cv.cvtColor(img1, cv.COLOR_BGR2GRAY)
     gray2 = cv.cvtColor(img2, cv.COLOR_BGR2GRAY)
-    gray1 = cv.resize(gray1, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
-    gray2 = cv.resize(gray2, (0,0), fx=0.2, fy=0.2, interpolation = cv.INTER_AREA)
     return img1, img2, gray1, gray2
 
 # find keypoints of 2 input grey scale images, perform matches between both images and return the strongest matches into an array
@@ -56,12 +54,11 @@ def match_keypoints(gray1, gray2, ratio, res_path):
         print("less than 4 matches between images")
     else:
         sorted_good_matches = sorted(good_matches, key=lambda x: x[0].distance)
-        best_4_matches = sorted_good_matches[len(sorted_good_matches)-4:]
+        best_4_matches = sorted_good_matches[:4]
 
-    #best_4_matches = random.sample(good_matches, 4)
-
-    img__best_matches = cv.drawMatchesKnn(gray1, kp1, gray2, kp2, best_4_matches, None, flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    cv.imwrite(res_path + 'orb_best_matches.jpg', img__best_matches)
+    # draw matches and save the result image
+    img_best_matches = cv.drawMatchesKnn(gray1, kp1, gray2, kp2, best_4_matches, None, flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    cv.imwrite(res_path + 'orb_best_matches.jpg', img_best_matches)
 
     # construct an array of pair of matched points
     matched_points = []
@@ -134,7 +131,8 @@ def compute_translation_matrix(matched_points):
 
     # 3x3 transformation matrix
     M = np.array([[1, 0, p[0][0]],
-                  [0, 1, p[1][0]]])
+                  [0, 1, p[1][0]],
+                  [0, 0, 1      ]])
     
     return M
 
@@ -162,7 +160,8 @@ def compute_euclidean_matrix(matched_points):
 
     # 3x3 transformation matrix
     M = np.array([[np.cos(p[2][0]), -np.sin(p[2][0]), p[0][0]],
-                  [np.sin(p[2][0]), np.cos(p[2][0]) , p[1][0]]])
+                  [np.sin(p[2][0]), np.cos(p[2][0]) , p[1][0]],
+                  [0              , 0               , 1      ]])
     
     return M
 
@@ -182,7 +181,8 @@ def compute_similarity_matrix(matched_points):
 
     # 3x3 transformation matrix
     M = np.array([[1+p[2][0], -p[3][0] , p[0][0]],
-                  [p[3][0]  , 1+p[2][0], p[1][0]]])
+                  [p[3][0]  , 1+p[2][0], p[1][0]],
+                  [0        , 0        , 1      ]])
     
     return M
 
@@ -202,7 +202,8 @@ def compute_affine_matrix(matched_points):
 
     # 3x3 transformation matrix
     M = np.array([[1+p[2][0], p[3][0]  , p[0][0]],
-                  [p[4][0]  , 1+p[5][0], p[1][0]]])
+                  [p[4][0]  , 1+p[5][0], p[1][0]],
+                  [0        , 0        , 1      ]])
     
     return M
 
@@ -258,7 +259,7 @@ def transform_affine(gray, M, res_path):
     cv.imwrite(res_path + 'img_query_affine_transform.jpg', img_transformed)
 
 # transform an image using the 3x3 transformation matrix M and save the result image
-def transform_homography(gray, M, res_path):
+def transform(gray, M, res_path):
 
     img_width = gray.shape[1]
     img_height = gray.shape[0]
@@ -267,9 +268,10 @@ def transform_homography(gray, M, res_path):
 
     print(img_transformed.shape[:2])
 
-    cv.imwrite(res_path + 'img_query_homography_transform.jpg', img_transformed)
+    cv.imwrite(res_path + 'img_query_transform.jpg', img_transformed)
 
-def calculate_canvas_size(img_query, img_ref, H):
+# compute the canvas dimension required to contain the reference and the transformed query images
+def calculate_canvas_size(img_query, img_ref, M):
     
     # get images dimensions
     h1, w1 = img_query.shape[:2]
@@ -280,7 +282,7 @@ def calculate_canvas_size(img_query, img_ref, H):
     corners_img_ref = np.float32([[0, 0], [0, h2], [w2, h2], [w2, 0]]).reshape(-1, 1, 2)
 
     # get corners' positions of the transformed query image
-    transformed_corners_img_query = cv.perspectiveTransform(corners_img_query, H)
+    transformed_corners_img_query = cv.perspectiveTransform(corners_img_query, M)
 
     # combine corners of both images
     all_corners = np.vstack((corners_img_ref, transformed_corners_img_query))
@@ -295,15 +297,16 @@ def calculate_canvas_size(img_query, img_ref, H):
 
     return canvas_size, translation
 
-def blend_images(img_query, img_ref, H):
+# stitch the reference image and the transformed query image on a single image
+def blend_images(img_query, img_ref, M):
 
     # compute canva dimension
-    canvas_size, translation = calculate_canvas_size(img_query, img_ref, H)
+    canvas_size, translation = calculate_canvas_size(img_query, img_ref, M)
     tx, ty = translation
 
     # multiplication of transformation matrix and translation matrix
     translation_matrix = np.array([[1, 0, tx], [0, 1, ty], [0, 0, 1]])
-    H_translation = np.dot(translation_matrix, H)
+    M_translation = np.dot(translation_matrix, M)
 
     # canvas creation
     canvas = np.zeros((canvas_size[1], canvas_size[0]), dtype=np.uint8)
@@ -312,7 +315,7 @@ def blend_images(img_query, img_ref, H):
     canvas[ty:ty+img_ref.shape[0], tx:tx+img_ref.shape[1]] = img_ref
 
     # transformation of the query image 
-    img_query_transformed = cv.warpPerspective(img_query, H_translation, canvas_size)
+    img_query_transformed = cv.warpPerspective(img_query, M_translation, canvas_size)
     
     # blend images on the canvas
     canvas = cv.addWeighted(canvas, 1, img_query_transformed, 1, 0)
@@ -331,8 +334,8 @@ set3_path = path + 'Photos_set_3/'
 res_path = path + 'Results/'
 
 # 2 images with similarities
-img_query_path = set1_path + 'horizontal_right.jpg'  # the image i want to deform in order to obtain the ref image
-img_ref_path = set1_path + 'horizontal_center.jpg'    # the reference image
+img_query_path = set1_path + 'vertical_rotate.jpg'  # the image i want to deform in order to obtain the ref image
+img_ref_path = set1_path + 'vertical_center.jpg'    # the reference image
 
 # ratio applied to select the strongest matches
 ratio = 0.7
@@ -346,7 +349,7 @@ print(gray_ref.shape[:2])
 # find keypoints in both images and matched them
 matched_points, best_4_matched_points = match_keypoints(gray_query, gray_ref, ratio, res_path)
 
-# compute transformation matrixes to go from img2 to img1 using different transformations
+# compute transformation matrixes to go from img_query to img_ref using different transformations
 Mt = compute_translation_matrix(matched_points)
 Me = compute_euclidean_matrix(matched_points)
 Ms = compute_similarity_matrix(matched_points)
@@ -370,12 +373,9 @@ print(Ma2)
 print('homography matrix from func :')
 print(Mh)
 
-# transform the query image into the ref image using affine warping
-transform_affine(gray_query, Ma2, res_path)
+# transform the query image into the ref image
+transform(gray_query, Ma, res_path)
 
-# transform the query image into the ref image using homography warping
-transform_homography(gray_query, Mh, res_path)
-
-# blend query and ref images on a canvas using homography transformation
-canvas = blend_images(gray_query, gray_ref, Mh)
+# blend query and ref images on a canvas
+canvas = blend_images(gray_query, gray_ref, Ma)
 cv.imwrite(res_path + 'stitched_images.jpg', canvas)
